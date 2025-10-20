@@ -109,10 +109,8 @@ async function initBrowser() {
             ]
         };
         
-        // Ako je Railway ili production, dodaj executable path
-        if (process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production') {
-            puppeteerOptions.executablePath = '/usr/bin/chromium-browser';
-        }
+        // Railway ili production - koristi bundled Chromium
+        // NE postavljaj executablePath - pusti Puppeteer da koristi svoj Chromium
         
         browser = await puppeteer.launch(puppeteerOptions);
         console.log('✅ Browser pokrenut!\n');

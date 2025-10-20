@@ -1,5 +1,0 @@
-[phases.setup]
-aptPkgs = ["chromium-browser"]
-
-[start]
-cmd = "npm start"
