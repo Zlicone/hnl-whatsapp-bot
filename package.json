@@ -1,0 +1,17 @@
+{
+  "name": "hnl-whatsapp-bot",
+  "version": "1.0.0",
+  "description": "HNL Fantasy WhatsApp Bot",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "whatsapp-web.js": "^1.23.0",
+    "qrcode-terminal": "^0.12.0",
+    "puppeteer": "^21.0.0"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}
