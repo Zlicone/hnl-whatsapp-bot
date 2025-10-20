@@ -7,10 +7,10 @@
     "start": "node bot.js"
   },
   "dependencies": {
-    "@sparticuz/chromium": "^123.0.1",
-    "puppeteer-core": "^24.25.0",
-    "qrcode-terminal": "^0.12.0",
-    "whatsapp-web.js": "^1.23.0"
+    "@sparticuz/chromium": "^123.0.0",
+  "puppeteer-core": "^21.0.0",
+  "qrcode-terminal": "^0.12.0",
+  "whatsapp-web.js": "^1.23.0"
   },
   "engines": {
     "node": "18.x"

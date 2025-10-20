@@ -4,15 +4,29 @@ const qrcode = require('qrcode-terminal');
 const puppeteer = require('puppeteer-core');
 const chromium = require('@sparticuz/chromium');
 
+(async () => {
+  const executablePath = await chromium.executablePath();
+
 // Inicijalizacija WhatsApp klijenta
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
-        executablePath: async () => await chromium.executablePath(),
+        executablePath,
         args: chromium.args,
-        headless: true
+        headless: chromium.headless
     }
 });
+
+client.on('qr', qr => {
+    qrcode.generate(qr, { small: true });
+  });
+
+  client.on('ready', () => {
+    console.log('✅ WhatsApp bot je spreman!');
+  });
+
+  await client.initialize();
+})();
 
 // Svi HNL klubovi s Transfermarkt URL-ovima
 const hnlKlubovi = {
