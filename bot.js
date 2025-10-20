@@ -5,27 +5,23 @@ const chromium = require('@sparticuz/chromium');
 const puppeteer = require('puppeteer-core');
 
 (async () => {
+  console.log('🚀 Pokrećem HNL Fantasy WhatsApp bot...');
+  console.log('📊 Izvori: Transfermarkt + Index + 24sata + Sportske novosti');
+
   const executablePath = await chromium.executablePath();
 
-// Inicijalizacija WhatsApp klijenta
-const client = new Client({
-    authStrategy: new LocalAuth(),
+  const client = new Client({
     puppeteer: {
-        executablePath,
-        args: chromium.args,
-        headless: chromium.headless
-    }
-});
-
-client.on('qr', qr => {
-    qrcode.generate(qr, { small: true });
+      args: chromium.args,
+      executablePath,
+      headless: chromium.headless,
+      defaultViewport: chromium.defaultViewport,
+    },
   });
 
-  client.on('ready', () => {
-    console.log('✅ WhatsApp bot je spreman!');
-  });
-
-  await client.initialize();
+  client.on('qr', qr => console.log('📱 QR kod spreman'));
+  client.on('ready', () => console.log('✅ Bot je spreman!'));
+  client.initialize();
 })();
 
 // Svi HNL klubovi s Transfermarkt URL-ovima
