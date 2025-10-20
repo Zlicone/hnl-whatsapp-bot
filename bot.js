@@ -1,8 +1,8 @@
 // ✅ Ispravljena verzija za Railway
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
-const puppeteer = require('puppeteer-core');
 const chromium = require('@sparticuz/chromium');
+const puppeteer = require('puppeteer-core');
 
 (async () => {
   const executablePath = await chromium.executablePath();
