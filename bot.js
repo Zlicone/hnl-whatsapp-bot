@@ -112,7 +112,6 @@ async function initBrowser() {
 /* --- tvoj ostatak koda ide ovdje, bez promjena --- */
 
 // Na kraju:
-client.initialize();
 
 console.log('🚀 Pokrećem HNL Fantasy WhatsApp bot...');
 console.log('📊 Izvori: Transfermarkt + Index + 24sata + Sportske novosti');
