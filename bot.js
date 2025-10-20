@@ -645,10 +645,18 @@ async function obradiKomandu(msg, tekst) {
 // Error handling
 client.on('auth_failure', () => {
     console.error('❌ Autentifikacija nije uspjela!');
+    console.error('⚠️  Obriši .wwebjs_auth folder i skeniraj novi QR kod');
 });
 
 client.on('disconnected', (reason) => {
     console.log('⚠️  Bot je diskonektiran:', reason);
+    console.log('🔄 Pokušavam reconnect...');
+    
+    // Pokušaj reconnect nakon 5 sekundi
+    setTimeout(() => {
+        console.log('🔄 Restarting bot...');
+        client.initialize();
+    }, 5000);
 });
 
 // Cleanup kad se program gasi
