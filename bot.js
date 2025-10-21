@@ -284,14 +284,20 @@ async function dohvatiOzljede(klub) {
 }
 
 // Inicijalizacija WhatsApp klijenta
-const client = new Client({
-    authStrategy: new LocalAuth(),
-    puppeteer: {
-        args: chromium.args,
-        executablePath: chromium.executablePath(),
-        headless: chromium.headless,
-    }
-});
+(async () => {
+    console.log('🚀 Pokrećem HNL Fantasy WhatsApp bot...');
+    
+    const executablePath = await chromium.executablePath();  // ✅ SA await
+
+    const client = new Client({
+        authStrategy: new LocalAuth(),
+        puppeteer:{
+            args: chromium.args,
+            executablePath: executablePath,
+            headless: chromium.headless,
+        }
+    })
+})
 
 // QR kod
 client.on('qr', (qr) => {
