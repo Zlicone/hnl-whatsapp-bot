@@ -102,7 +102,7 @@ async function scrapeClanke(url, izvor, klub) {
         // Duži timeout i domload samo (ne čekaj sve)
         await page.goto(url, { 
             waitUntil: 'domcontentloaded', 
-            timeout: 45000 
+            timeout: 10000 
         });
         
         // Pričekaj malo da se elementi učitaju
