@@ -84,66 +84,99 @@ async function scrapeClanke(url, izvor, klub) {
         
         const b = await initBrowser();
         if (!b) return [];
-        
-        const page = await b.newPage();
-        
-        // Blokiraj slike, CSS, fontove za brže učitavanje
-        await page.setRequestInterception(true);
-        page.on('request', (req) => {
-            if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
-                req.abort();
-            } else {
-                req.continue();
-            }
-        });
-        
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-        
-        // Duži timeout i domload samo (ne čekaj sve)
-        await page.goto(url, { 
-            waitUntil: 'domcontentloaded', 
-            timeout: 60000 
-        });
-        
-        // Pričekaj malo da se elementi učitaju
-        await page.waitForTimeout(2000);
-        
-        const clanci = await page.evaluate((r) => {
-            const res = [];
-            document.querySelectorAll('article, .article, [class*="article"]').forEach(art => {
-                try {
-                    const link = art.querySelector('a[href]');
-                    const naslov = art.querySelector('h2, h3, .title, [class*="title"], [class*="headline"]');
-                    if (!link || !naslov) return;
-                    
-                    const txt = naslov.textContent.trim().toLowerCase();
-                    const sadrziKlub = r.some(rij => txt.includes(rij.toLowerCase()));
-                    const sadrziOzl = txt.includes('ozljed') || txt.includes('ozlijed') || 
-                                     txt.includes('propušta') || txt.includes('propusta') ||
-                                     txt.includes('neće igrati') || txt.includes('nece igrati') ||
-                                     txt.includes('upitan') || txt.includes('ozleda') ||
-                                     txt.includes('van stroja') || txt.includes('izostao') ||
-                                     txt.includes('nedostaje');
-                    
-                    if (sadrziKlub && sadrziOzl) {
-                        res.push({ 
-                            naslov: naslov.textContent.trim(), 
-                            link: link.href 
-                        });
-                    }
-                } catch (e) {}
+
+        // Pomoćna funkcija koja otvara stranicu i pokušava dohvat naslova
+        const tryScrape = async (enableJS, gotoTimeout) => {
+            const page = await b.newPage();
+
+            // Blokiraj slike/CSS/fontove/medije za brže učitavanje
+            await page.setRequestInterception(true);
+            page.on('request', (req) => {
+                if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
+                    req.abort();
+                } else {
+                    req.continue();
+                }
             });
-            return res.slice(0, 5);
-        }, rijeci);
-        
-        await page.close();
-        console.log(`✅ ${izvor}: ${clanci.length} članaka`);
-        return clanci.map(c => ({ ...c, izvor }));
+
+            // Postavi user agent
+            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
+            // Uključi/isključi JavaScript
+            await page.setJavaScriptEnabled(enableJS);
+
+            try {
+                await page.goto(url, { waitUntil: 'domcontentloaded', timeout: gotoTimeout });
+            } catch (e) {
+                // ako ne uspije, zatvori i vrati prazan niz
+                await page.close();
+                throw e;
+            }
+
+            // Malo čekanja da se elementi pojave (ako je JS uključen možda treba više)
+            await page.waitForTimeout(enableJS ? 4000 : 2000);
+
+            const clanci = await page.evaluate((r) => {
+                const res = [];
+                document.querySelectorAll('article, .article, [class*="article"]').forEach(art => {
+                    try {
+                        const link = art.querySelector('a[href]');
+                        const naslov = art.querySelector('h2, h3, .title, [class*="title"], [class*="headline"]');
+                        if (!link || !naslov) return;
+                        
+                        const txt = naslov.textContent.trim().toLowerCase();
+                        const sadrziKlub = r.some(rij => txt.includes(rij.toLowerCase()));
+                        const sadrziOzl = txt.includes('ozljed') || txt.includes('ozlijed') || 
+                                         txt.includes('propušta') || txt.includes('propusta') ||
+                                         txt.includes('neće igrati') || txt.includes('nece igrati') ||
+                                         txt.includes('upitan') || txt.includes('ozleda') ||
+                                         txt.includes('van stroja') || txt.includes('izostao') ||
+                                         txt.includes('nedostaje');
+                        
+                        if (sadrziKlub && sadrziOzl) {
+                            res.push({ 
+                                naslov: naslov.textContent.trim(), 
+                                link: link.href 
+                            });
+                        }
+                    } catch (e) {}
+                });
+                return res.slice(0, 5);
+            }, rijeci);
+
+            await page.close();
+            return clanci.map(c => ({ ...c, izvor }));
+        };
+
+        // 1) Prvo pokušaj bez JS (brže, manje resursa)
+        let rezultati = [];
+        try {
+            rezultati = await tryScrape(false, 15000); // 15s timeout bez JS
+            if (rezultati.length > 0) {
+                console.log(`✅ ${izvor} (no-JS): ${rezultati.length} članaka`);
+                return rezultati;
+            } else {
+                console.log(`ℹ️ ${izvor}: nema rezultata bez JS — pokušavam s JS uključenim...`);
+            }
+        } catch (errNoJs) {
+            console.warn(`⚠️ ${izvor} no-JS pokušaj nije uspio: ${errNoJs.message}`);
+        }
+
+        // 2) Fallback: pokušaj s JS uključenim (sporije, ali pouzdanije)
+        try {
+            rezultati = await tryScrape(true, 30000); // 30s timeout s JS
+            console.log(`✅ ${izvor} (with-JS): ${rezultati.length} članaka`);
+            return rezultati;
+        } catch (errJs) {
+            console.error(`❌ ${izvor} greška:`, errJs.message);
+            return [];
+        }
     } catch (err) {
-        console.error(`❌ ${izvor} greška:`, err.message);
+        console.error(`❌ ${izvor} greška:`, err.message || err);
         return [];
     }
 }
+
 
 async function dohvatiClanke(klub) {
     const sada = Date.now();
