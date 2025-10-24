@@ -210,11 +210,11 @@ async function obradiKomandu(msg, tekst) {
     
     client.on('qr', qr => {
         console.log('📱 QR:');
-        if (!process.env.RAILWAY_ENVIRONMENT) {
-            qrcode.generate(qr, { small: true });
-        } else {
-            console.log(`https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qr)}`);
-        }
+        if (process.env.RAILWAY_ENVIRONMENT || process.env.RENDER) {  // RENDER
+        console.log(`https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qr)}`);
+    } else {
+        qrcode.generate(qr, { small: true });
+    }
     });
     
     client.on('ready', () => console.log('✅ Bot spreman!'));
