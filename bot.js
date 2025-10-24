@@ -290,3 +290,18 @@ async function obradiKomandu(msg, tekst) {
     
     client.initialize();
 })();
+
+// === SERVER ZA RENDER ===
+// Render zahtijeva otvoren port, čak i ako bot ne koristi web sučelje
+const PORT = process.env.PORT || 3000;
+
+// Jednostavan HTTP server koji samo vraća poruku da bot radi
+const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('✅ HNL WhatsApp Bot radi i povezan je!');
+});
+
+// Slušaj na 0.0.0.0, ne localhost
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`🌐 Server pokrenut na portu ${PORT}`);
+});
