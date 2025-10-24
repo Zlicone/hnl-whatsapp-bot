@@ -118,7 +118,7 @@ async function scrapeClanke(url, izvor, klub) {
 
             const clanci = await page.evaluate((r) => {
                 const res = [];
-                document.querySelectorAll('article, .article, [class*="article"]').forEach(art => {
+                document.querySelectorAll('article, .article, [class*="article"], [class*="story"], [class*="item"], [class*="box"]').forEach(art => {
                     try {
                         const link = art.querySelector('a[href]');
                         const naslov = art.querySelector('h2, h3, .title, [class*="title"], [class*="headline"]');
@@ -131,7 +131,8 @@ async function scrapeClanke(url, izvor, klub) {
                                          txt.includes('neće igrati') || txt.includes('nece igrati') ||
                                          txt.includes('upitan') || txt.includes('ozleda') ||
                                          txt.includes('van stroja') || txt.includes('izostao') ||
-                                         txt.includes('nedostaje');
+                                         txt.includes('nedostaje') || txt.includes('bez') ||
+                                         txt.includes('otpao') || txt.includes('nedostupan');
                         
                         if (sadrziKlub && sadrziOzl) {
                             res.push({ 
