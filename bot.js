@@ -2,6 +2,7 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const chromium = require('@sparticuz/chromium');
 const puppeteer = require('puppeteer-core');
+const http = require('http');
 
 // HNL klubovi
 const hnlKlubovi = {
@@ -44,7 +45,22 @@ async function initBrowser() {
         console.log('🌐 Pokrećem browser...');
         try {
             browser = await puppeteer.launch({
-                args: chromium.args,
+                args: [
+                    ...chromium.args,
+                    '--disable-dev-shm-usage',      // Ne koristi /dev/shm
+                    '--disable-gpu',                 // Bez GPU
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--single-process',              // Jedan proces (manje RAM-a)
+                    '--no-zygote',
+                    '--disable-extensions',
+                    '--disable-background-networking',
+                    '--disable-default-apps',
+                    '--disable-sync',
+                    '--disable-translate',
+                    '--disable-software-rasterizer',
+                    '--disable-dev-tools'
+                ],
                 executablePath: await chromium.executablePath(),
                 headless: chromium.headless
             });
