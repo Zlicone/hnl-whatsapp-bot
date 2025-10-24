@@ -224,11 +224,22 @@ async function obradiKomandu(msg, tekst) {
         const chat = await msg.getChat();
         let tekst = msg.body.toLowerCase().trim();
         
+        // U GRUPI - mora počinjati sa !hnl
         if (chat.isGroup) {
-            if (!tekst.startsWith('@bot') && !tekst.startsWith('!hnl') && !tekst.startsWith('/hnl')) return;
-            tekst = tekst.replace('@bot', '').replace('!hnl', '').replace('/hnl', '').trim();
-            if (!tekst) return msg.reply('⚽ *HNL Bot*\n\n• `!hnl Dinamo`\n• `!hnl klubovi`\n• `!hnl pomoć`');
+            // Ako NE počinje sa !hnl - IGNORIRAJ
+            if (!tekst.startsWith('!hnl')) return;
+            
+            // Makni !hnl prefix
+            tekst = tekst.replace('!hnl', '').trim();
+            
+            // Ako je samo "!hnl" bez ičega - pokaži pomoć
+            if (!tekst) {
+                return msg.reply('⚽ *HNL Bot*\n\n• `!hnl Dinamo`\n• `!hnl klubovi`\n• `!hnl pomoć`');
+            }
         }
+        
+        // PRIVATNO - radi bez prefixa
+        // (tekst ostaje kao što je)
         
         await obradiKomandu(msg, tekst);
     });
