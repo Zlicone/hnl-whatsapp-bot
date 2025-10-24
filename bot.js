@@ -70,9 +70,27 @@ async function scrapeClanke(url, izvor, klub) {
         if (!b) return [];
         
         const page = await b.newPage();
+        
+        // Blokiraj slike, CSS, fontove za brže učitavanje
+        await page.setRequestInterception(true);
+        page.on('request', (req) => {
+            if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
+                req.abort();
+            } else {
+                req.continue();
+            }
+        });
+        
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
         
-        await page.goto(url, { waitUntil: 'networkidle2', timeout: 20000 });
+        // Duži timeout i domload samo (ne čekaj sve)
+        await page.goto(url, { 
+            waitUntil: 'domcontentloaded', 
+            timeout: 45000 
+        });
+        
+        // Pričekaj malo da se elementi učitaju
+        await page.waitForTimeout(2000);
         
         const clanci = await page.evaluate((r) => {
             const res = [];
@@ -99,7 +117,7 @@ async function scrapeClanke(url, izvor, klub) {
                     }
                 } catch (e) {}
             });
-            return res.slice(0, 5); // Top 5 članaka
+            return res.slice(0, 5);
         }, rijeci);
         
         await page.close();
