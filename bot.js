@@ -30,8 +30,10 @@ async function dohvatiClankeRSS(klub) {
         
         console.log(`[Google News] Pretražujem za ${klubNaziv}...`);
         
-        const searchQuery = klubNaziv;
+        // Fokusiraj pretragu na hrvatske izvore i ključne riječi
+        const searchQuery = `${klubNaziv} ozljeda OR povreda OR neće igrati site:(index.hr OR 24sata.hr OR sportske.jutarnji.hr OR tportal.hr OR vecernji.hr OR gol.dnevnik.hr)`;
         const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(searchQuery)}&hl=hr&gl=HR&ceid=HR:hr`;
+
         
         const response = await axios.get(rssUrl, { 
             timeout: 15000,
@@ -87,7 +89,7 @@ async function dohvatiClankeRSS(klub) {
             });
         }
         
-        const prioritetIzvori = ['index', '24sata', 'sportske', 'jutarnji'];
+        const prioritetIzvori = ['index', '24sata', 'sportske', 'jutarnji', 'tportal', 'vecernji', 'gol.dnevnik'];
         clanci.sort((a, b) => {
             const aPrioritet = prioritetIzvori.some(p => a.izvor.toLowerCase().includes(p));
             const bPrioritet = prioritetIzvori.some(p => b.izvor.toLowerCase().includes(p));
