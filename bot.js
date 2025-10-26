@@ -25,87 +25,81 @@ let cacheClanci = {}, cacheVrijeme = null;
 const CACHE_TRAJANJE = 30 * 60 * 1000;
 
 async function dohvatiClankeRSS(klub) {
-    try {
-        const klubNaziv = hnlKlubovi[klub];
-        
-        console.log(`[Google News] Pretražujem za ${klubNaziv}...`);
-        
-        // Fokusiraj pretragu na hrvatske izvore i ključne riječi
-        const searchQuery = `${klubNaziv} ozljeda OR povreda OR neće igrati site:(index.hr OR 24sata.hr OR sportske.jutarnji.hr OR tportal.hr OR vecernji.hr OR gol.dnevnik.hr)`;
-        const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(searchQuery)}&hl=hr&gl=HR&ceid=HR:hr`;
+  try {
+    const klubNaziv = hnlKlubovi[klub];
+    console.log(`[Google News] Pretražujem za ${klubNaziv}...`);
 
-        
-        const response = await axios.get(rssUrl, { 
-            timeout: 15000,
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
+    const searchQuery = `${klubNaziv} (ozljeda OR povreda OR neće igrati OR pauza OR upitan OR van stroja) site:(index.hr OR 24sata.hr OR sportske.jutarnji.hr OR tportal.hr OR vecernji.hr OR gol.dnevnik.hr) when:7d`;
+    const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(searchQuery)}&hl=hr&gl=HR&ceid=HR:hr`;
+
+    const response = await axios.get(rssUrl, {
+      timeout: 15000,
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    });
+
+    const parsed = await new Promise((resolve, reject) => {
+      parseString(response.data, { trim: true }, (err, result) => {
+        if (err) reject(err);
+        else resolve(result);
+      });
+    });
+
+    const items = parsed?.rss?.channel?.[0]?.item || [];
+    const sad = new Date();
+    const sedamDana = 7 * 24 * 60 * 60 * 1000;
+    const itemsRecent = items.filter(item => {
+      const pubDate = new Date(item.pubDate?.[0]);
+      return sad - pubDate < sedamDana;
+    });
+
+    const keywords = [
+      'ozljed', 'ozlijed', 'povrij', 'povred',
+      'propuš', 'propust', 'neće igr', 'nece igr',
+      'van stroja', 'izosta', 'nedosta', 'upitan',
+      'pauza', 'otpa', 'bolest', 'rekonvalesc', 'oporavak'
+    ];
+
+    const clanci = [];
+    itemsRecent.forEach(item => {
+      const naslov = item.title?.[0] || '';
+      const opis = item.description?.[0] || '';
+      const link = item.link?.[0] || '';
+      const izvor = item.source?.[0]?._ || item.source?.[0] || 'Google News';
+      const tekst = `${naslov} ${opis}`.toLowerCase();
+      const imaKeyword = keywords.some(k => tekst.includes(k));
+
+      const klubRegex = new RegExp(`\\b${klubNaziv.split(' ')[0]}\\b`, 'i');
+      const sadrziKlub = klubRegex.test(tekst);
+
+      if (imaKeyword && sadrziKlub) {
+        clanci.push({
+          naslov,
+          link,
+          izvor,
+          pubDate: item.pubDate?.[0]
         });
-        
-        const parsed = await new Promise((resolve, reject) => {
-            parseString(response.data, { trim: true }, (err, result) => {
-                if (err) reject(err);
-                else resolve(result);
-            });
-        });
-        
-        const items = parsed?.rss?.channel?.[0]?.item || [];
-        console.log(`  → Pronađeno: ${items.length} članaka`);
-        
-        const clanci = [];
-        
-        const keywords = [
-            'ozljed', 'ozlijed', 'povrij', 'povred',
-            'propuš', 'propust', 'neće igr', 'nece igr',
-            'van stroja', 'izosta', 'nedosta', 'bez',
-            'upitan', 'sumnjiv', 'pauza', 'otpa',
-            'nedostup', 'bolest', 'rekonvalesc',
-            'operac', 'liječenj', 'oporavak'
-        ];
-        
-        items.forEach(item => {
-            const naslov = item.title?.[0] || '';
-            const naslovLower = naslov.toLowerCase();
-            const link = item.link?.[0] || '';
-            const izvor = item.source?.[0]?._ || item.source?.[0] || 'Google News';
-            
-            const imaKeyword = keywords.some(k => naslovLower.includes(k));
-            
-            if (link && imaKeyword) {
-                clanci.push({ naslov, link, izvor });
-            }
-        });
-        
-        if (clanci.length === 0) {
-            console.log(`  ⚠️  Nema članaka s ključnim riječima - prikazujem sve`);
-            items.slice(0, 5).forEach(item => {
-                const naslov = item.title?.[0] || '';
-                const link = item.link?.[0] || '';
-                const izvor = item.source?.[0]?._ || item.source?.[0] || 'Google News';
-                
-                if (naslov && link) {
-                    clanci.push({ naslov, link, izvor });
-                }
-            });
-        }
-        
-        const prioritetIzvori = ['index', '24sata', 'sportske', 'jutarnji', 'tportal', 'vecernji', 'gol.dnevnik'];
-        clanci.sort((a, b) => {
-            const aPrioritet = prioritetIzvori.some(p => a.izvor.toLowerCase().includes(p));
-            const bPrioritet = prioritetIzvori.some(p => b.izvor.toLowerCase().includes(p));
-            if (aPrioritet && !bPrioritet) return -1;
-            if (!aPrioritet && bPrioritet) return 1;
-            return 0;
-        });
-        
-        console.log(`✅ Google News: ${clanci.length} članaka`);
-        return clanci.slice(0, 7);
-        
-    } catch (err) {
-        console.error('❌ Google News greška:', err.message);
-        return [];
-    }
+      }
+    });
+
+    const prioritetIzvori = ['index', '24sata', 'sportske', 'jutarnji', 'tportal', 'vecernji', 'gol.dnevnik'];
+    clanci.sort((a, b) => {
+      const da = new Date(a.pubDate || 0);
+      const db = new Date(b.pubDate || 0);
+      const priorA = prioritetIzvori.some(p => a.izvor.toLowerCase().includes(p));
+      const priorB = prioritetIzvori.some(p => b.izvor.toLowerCase().includes(p));
+      if (priorA && !priorB) return -1;
+      if (!priorA && priorB) return 1;
+      return db - da;
+    });
+
+    console.log(`✅ Google News: ${clanci.length} članaka`);
+    return clanci.slice(0, 7);
+  } catch (err) {
+    console.error('❌ Google News greška:', err.message);
+    return [];
+  }
 }
+
 
 async function dohvatiClanke(klub) {
     const sada = Date.now();
