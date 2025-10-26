@@ -1,6 +1,7 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
-const axios = require('axios');
+const chromium = require('@sparticuz/chromium');
+const puppeteer = require('puppeteer-core');
 const http = require('http');
 
 // HNL klubovi
@@ -20,133 +21,130 @@ const hnlKlubovi = {
     'vukovar': 'NK Vukovar'
 };
 
-let cacheClanci = {}, cacheVrijeme = null;
+const klubPretraga = {
+    'dinamo': ['dinamo', 'gnk dinamo', 'plavi'],
+    'hajduk': ['hajduk', 'hnk hajduk', 'bili'],
+    'rijeka': ['rijeka', 'hnk rijeka'],
+    'osijek': ['osijek', 'nk osijek'],
+    'varaždin': ['varaždin', 'varazdin'],
+    'varazdin': ['varaždin', 'varazdin'],
+    'slaven belupo': ['slaven', 'belupo'],
+    'slaven': ['slaven', 'belupo'],
+    'istra': ['istra', 'istra 1961'],
+    'istra 1961': ['istra', 'istra 1961'],
+    'gorica': ['gorica'],
+    'lokomotiva': ['lokomotiva'],
+    'vukovar': ['vukovar']
+};
+
+let cacheClanci = {}, cacheVrijeme = null, browser = null, scrapingEnabled = true;
 const CACHE_TRAJANJE = 30 * 60 * 1000;
 
-// Dohvati članke iz Google News RSS
-const parseString = require('xml2js').parseString;
-
-async function dohvatiClankeRSS(klub) {
-    try {
-        const klubNaziv = hnlKlubovi[klub];
-        
-        // PROŠIRENE ključne riječi
-        const keywords = [
-            'ozljeda', 'ozlijeđen', 'ozlijedio',
-            'propušta', 'propustio', 'neće igrati',
-            'van stroja', 'izostao', 'nedostaje',
-            'upitan', 'sumnjiv', 'pauza',
-            'povrijeđen', 'povreda'
-        ];
-        
-        // Sve kombinacije: Dinamo + svaka ključna riječ
-        const searches = keywords.map(k => `"${klubNaziv}" ${k}`);
-        const allClanci = [];
-        
-        console.log(`[Google News] Pretražujem ${searches.length} kombinacija za ${klubNaziv}...`);
-        
-        // Pokušaj sa nekoliko različitih pretraga
-        for (let i = 0; i < Math.min(3, searches.length); i++) {
-            const searchQuery = searches[i];
-            const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(searchQuery)}&hl=hr&gl=HR&ceid=HR:hr`;
-            
-            try {
-                const response = await axios.get(rssUrl, { 
-                    timeout: 10000,
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                    }
-                });
-                
-                const parsed = await new Promise((resolve, reject) => {
-                    parseString(response.data, { trim: true }, (err, result) => {
-                        if (err) reject(err);
-                        else resolve(result);
-                    });
-                });
-                
-                const items = parsed?.rss?.channel?.[0]?.item || [];
-                console.log(`  → "${searchQuery}": ${items.length} rezultata`);
-                
-                items.forEach(item => {
-                    const naslov = item.title?.[0] || '';
-                    const link = item.link?.[0] || '';
-                    const izvor = item.source?.[0]?._ || item.source?.[0] || 'Nepoznat izvor';
-                    
-                    if (naslov && link) {
-                        // Provjeri je li već dodan (izbjegni duplikate)
-                        const postoji = allClanci.some(c => c.link === link);
-                        if (!postoji) {
-                            allClanci.push({ naslov, link, izvor });
-                        }
-                    }
-                });
-                
-            } catch (searchErr) {
-                console.error(`  ✗ Greška za "${searchQuery}":`, searchErr.message);
-            }
-        }
-        
-        // Dodatna pretraga - samo naziv kluba (bez ključnih riječi)
-        // Možda ima članak koji ne spominje "ozljeda" direktno
+async function initBrowser() {
+    if (!browser) {
+        console.log('🌐 Pokrećem browser...');
         try {
-            const basicUrl = `https://news.google.com/rss/search?q="${klubNaziv}"&hl=hr&gl=HR&ceid=HR:hr&num=10`;
-            const response = await axios.get(basicUrl, { timeout: 10000 });
-            
-            const parsed = await new Promise((resolve, reject) => {
-                parseString(response.data, { trim: true }, (err, result) => {
-                    if (err) reject(err);
-                    else resolve(result);
-                });
+            browser = await puppeteer.launch({
+                args: [
+                    ...chromium.args,
+                    '--disable-dev-shm-usage',      // Ne koristi /dev/shm
+                    '--disable-gpu',                 // Bez GPU
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--single-process',              // Jedan proces (manje RAM-a)
+                    '--no-zygote',
+                    '--disable-extensions',
+                    '--disable-background-networking',
+                    '--disable-default-apps',
+                    '--disable-sync',
+                    '--disable-translate',
+                    '--disable-software-rasterizer',
+                    '--disable-dev-tools'
+                ],
+                executablePath: await chromium.executablePath(),
+                headless: chromium.headless
             });
-            
-            const items = parsed?.rss?.channel?.[0]?.item || [];
-            console.log(`  → Osnovna pretraga "${klubNaziv}": ${items.length} rezultata`);
-            
-            items.forEach(item => {
-                const naslov = (item.title?.[0] || '').toLowerCase();
-                const link = item.link?.[0] || '';
-                const izvor = item.source?.[0]?._ || item.source?.[0] || 'Nepoznat izvor';
-                
-                // Filtriraj po naslovu - mora sadržavati barem jednu ključnu riječ
-                const imaKeyword = keywords.some(k => naslov.includes(k));
-                
-                if (imaKeyword && link) {
-                    const postoji = allClanci.some(c => c.link === link);
-                    if (!postoji) {
-                        allClanci.push({ 
-                            naslov: item.title?.[0] || '', 
-                            link, 
-                            izvor 
-                        });
-                    }
-                }
-            });
-            
-        } catch (basicErr) {
-            console.error('  ✗ Osnovna pretraga greška:', basicErr.message);
+            console.log('✅ Browser pokrenut!');
+            scrapingEnabled = true;
+        } catch (err) {
+            console.error('❌ Browser greška:', err.message);
+            scrapingEnabled = false;
         }
+    }
+    return browser;
+}
+
+async function scrapeClanke(url, izvor, klub) {
+    if (!scrapingEnabled) return [];
+    try {
+        const rijeci = klubPretraga[klub] || [];
+        if (!rijeci.length) return [];
         
-        // Sortiraj po relevantnosti - stavi Index, 24sata, Sportske na vrh
-        const prioritetIzvori = ['index.hr', '24sata', 'sportske', 'jutarnji', 'vecernji', 'slobodna'];
-        allClanci.sort((a, b) => {
-            const aPrioritet = prioritetIzvori.some(p => a.izvor.toLowerCase().includes(p));
-            const bPrioritet = prioritetIzvori.some(p => b.izvor.toLowerCase().includes(p));
-            if (aPrioritet && !bPrioritet) return -1;
-            if (!aPrioritet && bPrioritet) return 1;
-            return 0;
+        console.log(`[${izvor}] Tražim članke za ${klub}...`);
+        
+        const b = await initBrowser();
+        if (!b) return [];
+        
+        const page = await b.newPage();
+        
+        // Blokiraj slike, CSS, fontove za brže učitavanje
+        await page.setRequestInterception(true);
+        page.on('request', (req) => {
+            if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
+                req.abort();
+            } else {
+                req.continue();
+            }
         });
         
-        console.log(`✅ Google News: ${allClanci.length} jedinstvenih članaka`);
-        return allClanci.slice(0, 7); // Top 7
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
         
+        // Duži timeout i domload samo (ne čekaj sve)
+        await page.goto(url, { 
+            waitUntil: 'domcontentloaded', 
+            timeout: 45000 
+        });
+        
+        // Pričekaj malo da se elementi učitaju
+        await page.waitForTimeout(2000);
+        
+        const clanci = await page.evaluate((r) => {
+            const res = [];
+            document.querySelectorAll('article, .article, [class*="article"]').forEach(art => {
+                try {
+                    const link = art.querySelector('a[href]');
+                    const naslov = art.querySelector('h2, h3, .title, [class*="title"], [class*="headline"]');
+                    if (!link || !naslov) return;
+                    
+                    const txt = naslov.textContent.trim().toLowerCase();
+                    const sadrziKlub = r.some(rij => txt.includes(rij.toLowerCase()));
+                    const sadrziOzl = txt.includes('ozljed') || txt.includes('ozlijed') || 
+                                     txt.includes('propušta') || txt.includes('propusta') ||
+                                     txt.includes('neće igrati') || txt.includes('nece igrati') ||
+                                     txt.includes('upitan') || txt.includes('ozleda') ||
+                                     txt.includes('van stroja') || txt.includes('izostao') ||
+                                     txt.includes('nedostaje');
+                    
+                    if (sadrziKlub && sadrziOzl) {
+                        res.push({ 
+                            naslov: naslov.textContent.trim(), 
+                            link: link.href 
+                        });
+                    }
+                } catch (e) {}
+            });
+            return res.slice(0, 5);
+        }, rijeci);
+        
+        await page.close();
+        console.log(`✅ ${izvor}: ${clanci.length} članaka`);
+        return clanci.map(c => ({ ...c, izvor }));
     } catch (err) {
-        console.error('❌ Google News greška:', err.message);
+        console.error(`❌ ${izvor} greška:`, err.message);
         return [];
     }
 }
 
-// Dohvati članke s cachingom
 async function dohvatiClanke(klub) {
     const sada = Date.now();
     if (cacheVrijeme && (sada - cacheVrijeme) < CACHE_TRAJANJE && cacheClanci[klub]) {
@@ -156,15 +154,23 @@ async function dohvatiClanke(klub) {
     
     console.log(`\n🔍 Dohvaćam članke za ${klub}...`);
     
-    const clanci = await dohvatiClankeRSS(klub);
+    const [index, sata, sportske] = await Promise.allSettled([
+        scrapeClanke('https://www.index.hr/sport/najnovije/nogomet', 'Index.hr', klub),
+        scrapeClanke('https://www.24sata.hr/sport/nogomet', '24sata', klub),
+        scrapeClanke('https://sportske.jutarnji.hr/sn/nogomet/hnl', 'Sportske novosti', klub)
+    ]);
     
-    cacheClanci[klub] = clanci;
+    let sviClanke = [];
+    if (index.status === 'fulfilled') sviClanke = [...sviClanke, ...index.value];
+    if (sata.status === 'fulfilled') sviClanke = [...sviClanke, ...sata.value];
+    if (sportske.status === 'fulfilled') sviClanke = [...sviClanke, ...sportske.value];
+    
+    cacheClanci[klub] = sviClanke;
     cacheVrijeme = sada;
     
-    return clanci;
+    return sviClanke;
 }
 
-// Obrada komandi
 async function obradiKomandu(msg, tekst) {
     if (tekst === 'pomoć' || tekst === 'pomoc' || tekst === 'help') {
         return msg.reply(
@@ -174,7 +180,7 @@ async function obradiKomandu(msg, tekst) {
             '• "klubovi" → lista klubova\n' +
             '• "refresh" → osvježi podatke\n\n' +
             '_💡 U grupi: !hnl Dinamo_\n' +
-            '_📰 Izvor: Google News (Index, 24sata, Sportske...)_'
+            '_📰 Izvori: Index, 24sata, Sportske_'
         );
     }
     
@@ -190,7 +196,7 @@ async function obradiKomandu(msg, tekst) {
     }
     
     if (hnlKlubovi[tekst]) {
-        await msg.reply('🔄 Pretražujem Google News...');
+        await msg.reply('🔄 Pretražujem novine...');
         
         const clanci = await dohvatiClanke(tekst);
         const naziv = hnlKlubovi[tekst];
@@ -224,27 +230,22 @@ async function obradiKomandu(msg, tekst) {
 // === GLAVNI DIO ===
 (async () => {
     console.log('🚀 Pokrećem HNL Fantasy Bot...');
-    console.log('📰 Izvor: Google News (agregira Index, 24sata, Sportske...)');
+    console.log('📰 Izvori: Index, 24sata, Sportske novosti');
     
-    // HTTP server za Render
-    const PORT = process.env.PORT || 3000;
-    const server = http.createServer((req, res) => {
-        res.writeHead(200, { 'Content-Type': 'text/plain' });
-        res.end('✅ HNL WhatsApp Bot radi!\n');
-    });
-    server.listen(PORT, '0.0.0.0', () => {
-        console.log(`🌐 Server na portu ${PORT}`);
-    });
-    
-    // WhatsApp Client
+    const execPath = await chromium.executablePath();
     const client = new Client({
-        authStrategy: new LocalAuth()
+        authStrategy: new LocalAuth(),
+        puppeteer: { 
+            args: chromium.args, 
+            executablePath: execPath, 
+            headless: chromium.headless 
+        }
     });
     
     client.on('qr', qr => {
-        console.log('📱 QR KOD:');
-        if (process.env.RENDER || process.env.NODE_ENV === 'production') {
-            console.log('🔗 Otvori link:');
+        console.log('📱 QR:');
+        if (process.env.RENDER || process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production') {
+            console.log('🔗 QR KOD LINK:');
             console.log(`https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qr)}`);
         } else {
             qrcode.generate(qr, { small: true });
@@ -259,12 +260,20 @@ async function obradiKomandu(msg, tekst) {
         
         // U GRUPI - mora počinjati sa !hnl
         if (chat.isGroup) {
+            // Ako NE počinje sa !hnl - IGNORIRAJ
             if (!tekst.startsWith('!hnl')) return;
+            
+            // Makni !hnl prefix
             tekst = tekst.replace('!hnl', '').trim();
+            
+            // Ako je samo "!hnl" bez ičega - pokaži pomoć
             if (!tekst) {
                 return msg.reply('⚽ *HNL Bot*\n\n• `!hnl Dinamo`\n• `!hnl klubovi`\n• `!hnl pomoć`');
             }
         }
+        
+        // PRIVATNO - radi bez prefixa
+        // (tekst ostaje kao što je)
         
         await obradiKomandu(msg, tekst);
     });
@@ -274,7 +283,10 @@ async function obradiKomandu(msg, tekst) {
         setTimeout(() => client.initialize(), 5000);
     });
     
-    process.on('SIGINT', () => process.exit(0));
+    process.on('SIGINT', async () => {
+        if (browser) await browser.close();
+        process.exit(0);
+    });
     
     client.initialize();
 })();
