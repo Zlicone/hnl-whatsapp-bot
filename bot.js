@@ -24,43 +24,121 @@ let cacheClanci = {}, cacheVrijeme = null;
 const CACHE_TRAJANJE = 30 * 60 * 1000;
 
 // Dohvati članke iz Google News RSS
+const parseString = require('xml2js').parseString;
+
 async function dohvatiClankeRSS(klub) {
     try {
         const klubNaziv = hnlKlubovi[klub];
         
-        // Google News pretraga za klub + ozljeda keywords
-        const searchQuery = `"${klubNaziv}" (ozljeda OR ozlijeđen OR propušta OR upitan OR "neće igrati" OR "van stroja")`;
-        const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(searchQuery)}&hl=hr&gl=HR&ceid=HR:hr`;
+        // PROŠIRENE ključne riječi
+        const keywords = [
+            'ozljeda', 'ozlijeđen', 'ozlijedio',
+            'propušta', 'propustio', 'neće igrati',
+            'van stroja', 'izostao', 'nedostaje',
+            'upitan', 'sumnjiv', 'pauza',
+            'povrijeđen', 'povreda'
+        ];
         
-        console.log(`[Google News] Pretražujem za ${klubNaziv}...`);
+        // Sve kombinacije: Dinamo + svaka ključna riječ
+        const searches = keywords.map(k => `"${klubNaziv}" ${k}`);
+        const allClanci = [];
         
-        const response = await axios.get(rssUrl, { 
-            timeout: 15000,
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-        });
+        console.log(`[Google News] Pretražujem ${searches.length} kombinacija za ${klubNaziv}...`);
         
-        // Parsiraj XML (jednostavno)
-        const clanci = [];
-        const items = response.data.match(/<item>[\s\S]*?<\/item>/g) || [];
-        
-        items.slice(0, 5).forEach(item => {
-            const naslovMatch = item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/);
-            const linkMatch = item.match(/<link>(.*?)<\/link>/);
-            const izvorMatch = item.match(/<source[^>]*>(.*?)<\/source>/);
+        // Pokušaj sa nekoliko različitih pretraga
+        for (let i = 0; i < Math.min(3, searches.length); i++) {
+            const searchQuery = searches[i];
+            const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(searchQuery)}&hl=hr&gl=HR&ceid=HR:hr`;
             
-            if (naslovMatch && linkMatch) {
-                clanci.push({
-                    naslov: naslovMatch[1].trim(),
-                    link: linkMatch[1].trim(),
-                    izvor: izvorMatch ? izvorMatch[1].trim() : 'Google News'
+            try {
+                const response = await axios.get(rssUrl, { 
+                    timeout: 10000,
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    }
                 });
+                
+                const parsed = await new Promise((resolve, reject) => {
+                    parseString(response.data, { trim: true }, (err, result) => {
+                        if (err) reject(err);
+                        else resolve(result);
+                    });
+                });
+                
+                const items = parsed?.rss?.channel?.[0]?.item || [];
+                console.log(`  → "${searchQuery}": ${items.length} rezultata`);
+                
+                items.forEach(item => {
+                    const naslov = item.title?.[0] || '';
+                    const link = item.link?.[0] || '';
+                    const izvor = item.source?.[0]?._ || item.source?.[0] || 'Nepoznat izvor';
+                    
+                    if (naslov && link) {
+                        // Provjeri je li već dodan (izbjegni duplikate)
+                        const postoji = allClanci.some(c => c.link === link);
+                        if (!postoji) {
+                            allClanci.push({ naslov, link, izvor });
+                        }
+                    }
+                });
+                
+            } catch (searchErr) {
+                console.error(`  ✗ Greška za "${searchQuery}":`, searchErr.message);
             }
+        }
+        
+        // Dodatna pretraga - samo naziv kluba (bez ključnih riječi)
+        // Možda ima članak koji ne spominje "ozljeda" direktno
+        try {
+            const basicUrl = `https://news.google.com/rss/search?q="${klubNaziv}"&hl=hr&gl=HR&ceid=HR:hr&num=10`;
+            const response = await axios.get(basicUrl, { timeout: 10000 });
+            
+            const parsed = await new Promise((resolve, reject) => {
+                parseString(response.data, { trim: true }, (err, result) => {
+                    if (err) reject(err);
+                    else resolve(result);
+                });
+            });
+            
+            const items = parsed?.rss?.channel?.[0]?.item || [];
+            console.log(`  → Osnovna pretraga "${klubNaziv}": ${items.length} rezultata`);
+            
+            items.forEach(item => {
+                const naslov = (item.title?.[0] || '').toLowerCase();
+                const link = item.link?.[0] || '';
+                const izvor = item.source?.[0]?._ || item.source?.[0] || 'Nepoznat izvor';
+                
+                // Filtriraj po naslovu - mora sadržavati barem jednu ključnu riječ
+                const imaKeyword = keywords.some(k => naslov.includes(k));
+                
+                if (imaKeyword && link) {
+                    const postoji = allClanci.some(c => c.link === link);
+                    if (!postoji) {
+                        allClanci.push({ 
+                            naslov: item.title?.[0] || '', 
+                            link, 
+                            izvor 
+                        });
+                    }
+                }
+            });
+            
+        } catch (basicErr) {
+            console.error('  ✗ Osnovna pretraga greška:', basicErr.message);
+        }
+        
+        // Sortiraj po relevantnosti - stavi Index, 24sata, Sportske na vrh
+        const prioritetIzvori = ['index.hr', '24sata', 'sportske', 'jutarnji', 'vecernji', 'slobodna'];
+        allClanci.sort((a, b) => {
+            const aPrioritet = prioritetIzvori.some(p => a.izvor.toLowerCase().includes(p));
+            const bPrioritet = prioritetIzvori.some(p => b.izvor.toLowerCase().includes(p));
+            if (aPrioritet && !bPrioritet) return -1;
+            if (!aPrioritet && bPrioritet) return 1;
+            return 0;
         });
         
-        console.log(`✅ Google News: ${clanci.length} članaka`);
-        return clanci;
+        console.log(`✅ Google News: ${allClanci.length} jedinstvenih članaka`);
+        return allClanci.slice(0, 7); // Top 7
         
     } catch (err) {
         console.error('❌ Google News greška:', err.message);
