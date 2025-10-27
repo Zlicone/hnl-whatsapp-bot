@@ -110,6 +110,64 @@ async function dohvatiClankeRSS(klub) {
   }
 }
 
+async function dohvatiClankeDirektno(klub) {
+    const rssIzvori = [
+        'https://www.index.hr/rss.aspx?cat=sport',
+        'https://www.24sata.hr/feeds/sport.xml',
+        'https://sportske.jutarnji.hr/rss',
+        'https://www.vecernji.hr/feeds/sport.xml',
+        'https://www.tportal.hr/rss/sport.xml'
+    ];
+
+    const keywords = [
+        'ozljed', 'ozlijed', 'povrij', 'povred',
+        'propuš', 'propust', 'neće igr', 'nece igr',
+        'van stroja', 'izosta', 'nedosta', 'bez',
+        'upitan', 'sumnjiv', 'pauza', 'otpa',
+        'nedostup', 'bolest', 'rekonvalesc',
+        'operac', 'liječenj', 'oporavak'
+    ];
+
+    const klubNaziv = hnlKlubovi[klub]?.toLowerCase() || klub.toLowerCase();
+    const sviClanci = [];
+
+    for (const url of rssIzvori) {
+        try {
+            const res = await axios.get(url, { timeout: 15000 });
+            const parsed = await new Promise((resolve, reject) => {
+                parseString(res.data, { trim: true }, (err, result) => {
+                    if (err) reject(err);
+                    else resolve(result);
+                });
+            });
+
+            const items = parsed?.rss?.channel?.[0]?.item || [];
+
+            items.forEach(item => {
+                const naslov = item.title?.[0] || '';
+                const opis = item.description?.[0] || '';
+                const link = item.link?.[0] || '';
+                const izvor = parsed?.rss?.channel?.[0]?.title?.[0] || 'Nepoznat izvor';
+                const text = (naslov + opis).toLowerCase();
+
+                const spominjeKlub = text.includes(klubNaziv);
+                const imaKeyword = keywords.some(k => text.includes(k));
+
+                if (spominjeKlub && imaKeyword) {
+                    sviClanci.push({ naslov, link, izvor });
+                }
+            });
+
+        } catch (err) {
+            console.log(`⚠️ Greška RSS ${url}: ${err.message}`);
+        }
+    }
+
+    console.log(`✅ Nađeno ${sviClanci.length} članaka o ${klubNaziv}`);
+    return sviClanci.slice(0, 7);
+}
+
+
 
 async function dohvatiClanke(klub) {
     const sada = Date.now();
@@ -120,7 +178,14 @@ async function dohvatiClanke(klub) {
     
     console.log(`\n🔍 Dohvaćam članke za ${klub}...`);
     
-    const clanci = await dohvatiClankeRSS(klub);
+    let clanci = await dohvatiClankeRSS(klub);
+
+// ako Google News ne vrati ništa → koristi direktni fallback
+if (clanci.length === 0) {
+    console.log(`⚙️  Fallback na direktne HR RSS izvore...`);
+    clanci = await dohvatiClankeDirektno(klub);
+}
+
     
     cacheClanci[klub] = clanci;
     cacheVrijeme = sada;
