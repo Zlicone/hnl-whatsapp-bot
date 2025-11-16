@@ -11,6 +11,9 @@
     "axios": "^1.4.0",
     "cheerio": "^1.0.0-rc.12"
   },
+  "overrides": {
+    "undici": "5.28.4"
+  },
   "engines": {
     "node": "18.x"
   }
