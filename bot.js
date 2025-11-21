@@ -1,11 +1,16 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const makeWASocket = require('@whiskeysockets/baileys').default;
+const { DisconnectReason, useMultiFileAuthState } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const http = require('http');
+const P = require('pino');
 
-// Steel browser URL - ZAMIJENI SA SVOJIM!
-const STEEL_URL = process.env.STEEL_URL || 'https://hnl-whatsapp-bot.fly.dev';
+// Logger (Baileys ga traži)
+const logger = P({ level: 'silent' });
+
+// Steel browser URL
+const STEEL_URL = process.env.STEEL_URL || 'https://steel-browser-hnl.fly.dev';
 
 // HNL klubovi
 const hnlKlubovi = {
@@ -27,18 +32,14 @@ const hnlKlubovi = {
 let cacheClanci = {}, cacheVrijeme = null;
 const CACHE_TRAJANJE = 30 * 60 * 1000;
 
-// Scrape stranicu kroz steel-browser
+// Scrape kroz Steel
 async function scrapeWithSteel(url) {
     try {
         console.log(`[Steel] Scraping ${url}...`);
-        
         const response = await axios.post(`${STEEL_URL}/v1/scrape`, {
             url: url,
             delay: 2000
-        }, {
-            timeout: 30000
-        });
-        
+        }, { timeout: 30000 });
         return response.data;
     } catch (err) {
         console.error(`[Steel] Greška:`, err.message);
@@ -54,7 +55,6 @@ async function scrapeIndex(klub) {
         
         const $ = cheerio.load(html);
         const clanci = [];
-        
         const klubNaziv = hnlKlubovi[klub].toLowerCase();
         const keywords = ['ozljed', 'propuš', 'upitan', 'van stroja', 'nedosta', 'bez'];
         
@@ -94,7 +94,6 @@ async function scrape24sata(klub) {
         
         const $ = cheerio.load(html);
         const clanci = [];
-        
         const klubNaziv = hnlKlubovi[klub].toLowerCase();
         const keywords = ['ozljed', 'propuš', 'upitan', 'van stroja', 'nedosta', 'bez'];
         
@@ -126,7 +125,7 @@ async function scrape24sata(klub) {
     }
 }
 
-// Scrape Sportske novosti
+// Scrape Sportske
 async function scrapeSportske(klub) {
     try {
         const html = await scrapeWithSteel('https://sportske.jutarnji.hr/sn/nogomet/hnl');
@@ -134,7 +133,6 @@ async function scrapeSportske(klub) {
         
         const $ = cheerio.load(html);
         const clanci = [];
-        
         const klubNaziv = hnlKlubovi[klub].toLowerCase();
         const keywords = ['ozljed', 'propuš', 'upitan', 'van stroja', 'nedosta', 'bez'];
         
@@ -193,42 +191,45 @@ async function dohvatiClanke(klub) {
     return sviClanke;
 }
 
-async function obradiKomandu(msg, tekst) {
+// Obrada komandi
+async function obradiKomandu(sock, from, tekst) {
     if (tekst === 'pomoć' || tekst === 'pomoc' || tekst === 'help') {
-        return msg.reply(
-            '⚽ *HNL Fantasy Bot*\n\n' +
-            '📰 *Komande:*\n' +
-            '• Naziv kluba → najnoviji članci\n' +
-            '• "klubovi" → lista klubova\n' +
-            '• "refresh" → osvježi podatke\n\n' +
-            '_💡 U grupi: !hnl Dinamo_\n' +
-            '_📰 Izvori: Index, 24sata, Sportske_'
-        );
+        await sock.sendMessage(from, {
+            text: '⚽ *HNL Fantasy Bot*\n\n' +
+                  '📰 *Komande:*\n' +
+                  '• Naziv kluba → najnoviji članci\n' +
+                  '• "klubovi" → lista klubova\n' +
+                  '• "refresh" → osvježi podatke\n\n' +
+                  '_💡 U grupi: !hnl Dinamo_\n' +
+                  '_📰 Izvori: Index, 24sata, Sportske_'
+        });
+        return;
     }
     
     if (tekst === 'klubovi') {
         const lista = [...new Set(Object.values(hnlKlubovi))].sort().map(k => `• ${k}`).join('\n');
-        return msg.reply(`⚽ *HNL Klubovi:*\n\n${lista}`);
+        await sock.sendMessage(from, { text: `⚽ *HNL Klubovi:*\n\n${lista}` });
+        return;
     }
     
     if (tekst === 'refresh') {
         cacheClanci = {};
         cacheVrijeme = null;
-        return msg.reply('✅ Cache očišćen!');
+        await sock.sendMessage(from, { text: '✅ Cache očišćen!' });
+        return;
     }
     
     if (hnlKlubovi[tekst]) {
-        await msg.reply('🔄 Pretražujem novine...');
+        await sock.sendMessage(from, { text: '🔄 Pretražujem novine...' });
         
         const clanci = await dohvatiClanke(tekst);
         const naziv = hnlKlubovi[tekst];
         
         if (clanci.length === 0) {
-            return msg.reply(
-                `✅ *${naziv}*\n\n` +
-                `Nema najnovijih članaka o ozljedama.\n\n` +
-                `_${new Date().toLocaleString('hr-HR')}_`
-            );
+            await sock.sendMessage(from, {
+                text: `✅ *${naziv}*\n\nNema najnovijih članaka o ozljedama.\n\n_${new Date().toLocaleString('hr-HR')}_`
+            });
+            return;
         }
         
         let odg = `📰 *${naziv} - Najnovije vijesti*\n\n`;
@@ -243,60 +244,91 @@ async function obradiKomandu(msg, tekst) {
         odg += `\n\n_Pronađeno: ${clanci.length} članak(a)_\n`;
         odg += `_${new Date().toLocaleString('hr-HR')}_`;
         
-        return msg.reply(odg);
+        await sock.sendMessage(from, { text: odg });
+        return;
     }
     
-    return msg.reply(`❌ Klub "${msg.body}" nije pronađen.\nPošalji "klubovi" za listu.`);
+    await sock.sendMessage(from, { text: `❌ Klub "${tekst}" nije pronađen.\nPošalji "klubovi" za listu.` });
 }
 
-(async () => {
-    console.log('🚀 Pokrećem HNL Fantasy Bot...');
-    console.log(`📡 Steel Browser: ${STEEL_URL}`);
+// Pokreni WhatsApp bota
+async function startBot() {
+    const { state, saveCreds } = await useMultiFileAuthState('./auth_info');
     
-    const PORT = process.env.PORT || 3000;
-    const server = http.createServer((req, res) => {
-        res.writeHead(200, { 'Content-Type': 'text/plain' });
-        res.end('✅ HNL WhatsApp Bot!\n');
-    });
-    server.listen(PORT, '0.0.0.0', () => {
-        console.log(`🌐 Server na portu ${PORT}`);
+    const sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: false,
+        logger
     });
     
-    const client = new Client({ authStrategy: new LocalAuth() });
-    
-    client.on('qr', qr => {
-        console.log('📱 QR KOD:');
-        if (process.env.RENDER || process.env.NODE_ENV === 'production') {
-            console.log('🔗 Link:');
-            console.log(`https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qr)}`);
-        } else {
-            qrcode.generate(qr, { small: true });
-        }
-    });
-    
-    client.on('ready', () => console.log('✅ Bot spreman!'));
-    
-    client.on('message', async (msg) => {
-        const chat = await msg.getChat();
-        let tekst = msg.body.toLowerCase().trim();
+    // QR kod
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
         
-        if (chat.isGroup) {
-            if (!tekst.startsWith('!hnl')) return;
-            tekst = tekst.replace('!hnl', '').trim();
-            if (!tekst) {
-                return msg.reply('⚽ *HNL Bot*\n\n• `!hnl Dinamo`\n• `!hnl klubovi`\n• `!hnl pomoć`');
+        if (qr) {
+            console.log('📱 QR KOD:');
+            if (process.env.RENDER || process.env.NODE_ENV === 'production') {
+                console.log('🔗 Link:');
+                console.log(`https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qr)}`);
+            } else {
+                qrcode.generate(qr, { small: true });
             }
         }
         
-        await obradiKomandu(msg, tekst);
+        if (connection === 'close') {
+            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('⚠️  Disconnected:', lastDisconnect?.error, 'Reconnecting:', shouldReconnect);
+            
+            if (shouldReconnect) {
+                setTimeout(() => startBot(), 5000);
+            }
+        } else if (connection === 'open') {
+            console.log('✅ Bot spreman!');
+        }
     });
     
-    client.on('disconnected', r => {
-        console.log('⚠️  Disconnected:', r);
-        setTimeout(() => client.initialize(), 5000);
+    // Spremi credentials
+    sock.ev.on('creds.update', saveCreds);
+    
+    // Poruke
+    sock.ev.on('messages.upsert', async ({ messages }) => {
+        const m = messages[0];
+        if (!m.message || m.key.fromMe) return;
+        
+        const from = m.key.remoteJid;
+        const messageText = m.message.conversation || m.message.extendedTextMessage?.text || '';
+        let tekst = messageText.toLowerCase().trim();
+        
+        // Grupa
+        const isGroup = from.endsWith('@g.us');
+        
+        if (isGroup) {
+            if (!tekst.startsWith('!hnl')) return;
+            tekst = tekst.replace('!hnl', '').trim();
+            if (!tekst) {
+                await sock.sendMessage(from, {
+                    text: '⚽ *HNL Bot*\n\n• `!hnl Dinamo`\n• `!hnl klubovi`\n• `!hnl pomoć`'
+                });
+                return;
+            }
+        }
+        
+        await obradiKomandu(sock, from, tekst);
     });
-    
-    process.on('SIGINT', () => process.exit(0));
-    
-    client.initialize();
-})();
+}
+
+// HTTP server za Render
+const PORT = process.env.PORT || 3000;
+const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('✅ HNL WhatsApp Bot!\n');
+});
+
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`🌐 Server na portu ${PORT}`);
+});
+
+// Start
+console.log('🚀 Pokrećem HNL Fantasy Bot (Baileys)...');
+console.log(`📡 Steel Browser: ${STEEL_URL}`);
+startBot();
